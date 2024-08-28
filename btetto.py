@@ -128,8 +128,8 @@ def process_call_stacks(packet, stack1str, stack2str=None):
         return add_call_stack(packet, stack1 + stack2)
     return add_call_stack(packet, stack1)
 
-# print(("perf_sample", "ts", nsecs, "pid", pid, "tid", tid, "kstack", kstack, "ustack", ustack));
-def add_perf_sample(trace, data, data_len):
+# print(("call_stack", "ts", nsecs, "pid", pid, "tid", tid, "kstack", kstack, "ustack", ustack));
+def add_call_stack_sample(trace, data, data_len):
     global is_first_packet
     global is_first_perf_event
     if data_len < 7:
@@ -151,7 +151,7 @@ def add_perf_sample(trace, data, data_len):
             # Track descriptor doesn't exist, let's make one
             add_track_descriptor_thread_impl(trace, event["pid"], event["tid"], event.get("thread_name", "unknown"))
     else:
-        print("Error: perf sample must have a pid and a tid")
+        print("Error: call stack sample must have a pid and a tid")
         exit(1)
         
     packet = trace.packet.add()
@@ -412,8 +412,8 @@ def parse_raw_data(data, trace):
         add_track_descriptor(trace, data, data_len)
     elif data_type == "track_event":
         add_track_event(trace, data, data_len)
-    elif data_type == "perf_sample":
-        add_perf_sample(trace, data, data_len)
+    elif data_type == "call_stack":
+        add_call_stack_sample(trace, data, data_len)
     else:
         print(f"Error: first field ({data_type}) is not a valid trace data type. Valid types are: {VALID_TRACE_DATA_TYPES}")
         exit(1)
