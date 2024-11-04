@@ -1,0 +1,40 @@
+#!/usr/bin/env bpftrace
+
+BEGIN {
+     print(("track_descriptor", ("name", "Top Parent")));
+     print(("track_descriptor", ("name", "Sub Parent A"), ("parent", "Top Parent")));
+	 print(("track_descriptor", ("name", "Sub Parent B"), ("parent", "Top Parent")));
+}
+
+tracepoint:exceptions:page_fault_user
+{
+	@pagefault_start[tid] = nsecs;
+    @c = count();
+}
+
+// Second best? There is no tracepoint at the end of handle_user_addr_fault
+kretfunc:handle_mm_fault /@pagefault_start[tid]/
+{
+    $start = @pagefault_start[tid];
+    $end = nsecs;
+    $duration_ms = ($end - $start) / 1000;
+    delete(@pagefault_start[tid]);
+    
+    if ($duration_ms > 10) {
+		
+		if ((pid % 2) == 0) {
+			print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "Sub Parent A")));
+			
+			print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "Sub Parent A")));
+		} else {
+			print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "Sub Parent B")));
+			
+			print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "Sub Parent B")));
+		}
+    }
+}
+
+END
+{
+	clear(@pagefault_start);
+}
