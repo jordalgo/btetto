@@ -8,7 +8,8 @@ use serde_json::Value;
 mod protos;
 
 use protobuf::Message;
-use protos::protos_gen::perfetto_bpftrace::{CounterDescriptor, EventName, InternedData, Trace, TracePacket, TrackDescriptor, ThreadDescriptor, TrackEvent, counter_descriptor, track_descriptor, track_event, trace_packet};
+use protos::protos_gen::perfetto_bpftrace::{
+    DebugAnnotation, DebugAnnotationName, CounterDescriptor, EventName, InternedData, InternedString, Trace, TracePacket, TrackDescriptor, ThreadDescriptor, TrackEvent, counter_descriptor, debug_annotation, track_descriptor, track_event, trace_packet};
 
 // cargo build && sudo bpftrace ~/jordan.bt -f json | ./target/debug/btetto
 
@@ -59,7 +60,6 @@ fn main() {
             break;
         }
         let json_line: Value = parse_json_line.unwrap();
-        // let json_line: Value = serde_json::from_str(&input).expect(&format!("Failed to parse json line {}", input));
         let out_type = &json_line["type"];
         if out_type == "attached_probes" {
            let num_probes = &json_line["data"]["probes"];
@@ -127,7 +127,7 @@ fn add_track_descriptor(trace: &mut Trace, data: &Value, ids: &mut Ids) {
 
 fn add_track_descriptor_name(descriptor: HashMap<&str, Value>, trace: &mut Trace, ids: &mut Ids)
 {
-    let track_name = descriptor["track_name"].as_str().unwrap();
+    let track_name = descriptor["name"].as_str().unwrap();
     let track_uuid = get_uuid_for_name(&track_name, &ids);
     if track_uuid.is_some() {
         // Already have this track descriptor, no need to re-add it
@@ -205,6 +205,10 @@ fn add_track_descriptor_counter(descriptor: HashMap<&str, Value>, trace: &mut Tr
     
 }
 
+// Example track events
+// print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "Sub Parent A")));
+// print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "Sub Parent A")));
+// print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("__a_bananas", 10), ("__a_greeting", "hello")));
 fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     let mut event = HashMap::new();
     
@@ -261,7 +265,6 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     
     track_event.name_field = Some(track_event::Name_field::NameIid(string_id_pair.0));
     
-    packet.interned_data = Some(interned_data).into();
     packet.timestamp = Some(event["ts"].as_u64().unwrap());
     
     let event_type = event["type"].as_str().unwrap();
@@ -282,6 +285,41 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         _=> panic!("Error: Unknown event type {event_type}")
     }
     
+    if event_type != "COUNTER" {
+        for (key, value) in event.into_iter() {
+            if is_event_field(key) {
+                continue;
+            }
+            let mut debug_annotation = DebugAnnotation::new();
+            let string_id_pair = get_string_id(key, ids);
+            debug_annotation.name_field = Some(debug_annotation::Name_field::NameIid(string_id_pair.0));
+            
+            if string_id_pair.1 {
+                let mut dan = DebugAnnotationName::new();
+                dan.iid = Some(string_id_pair.0);
+                dan.name = Some(key.to_string());
+                interned_data.debug_annotation_names.push(dan);
+            }
+            
+            if value.is_string() {
+                let string_value_id_pair = get_string_id(value.as_str().unwrap(), ids);
+                debug_annotation.value = Some(debug_annotation::Value::StringValueIid(string_value_id_pair.0));
+                
+                if string_value_id_pair.1 {
+                    let mut is = InternedString::new();
+                    is.iid = Some(string_value_id_pair.0);
+                    is.str = Some(value.as_str().unwrap().as_bytes().to_vec());
+                    interned_data.debug_annotation_string_values.push(is);
+                }
+            } else if value.is_number() {
+                debug_annotation.value = Some(debug_annotation::Value::IntValue(value.as_i64().unwrap()));
+            }
+            
+            track_event.debug_annotations.push(debug_annotation);
+        }
+    }
+    
+    packet.interned_data = Some(interned_data).into();
     packet.data = Some(trace_packet::Data::TrackEvent(track_event));
     trace.packet.push(packet);
     
@@ -293,6 +331,10 @@ fn validate_track_event(event: &HashMap<&str, serde_json::Value>) {
     let event_type = event["type"].as_str().unwrap();
     assert!(event.contains_key("type"), "Error: track must have a valid type");
     assert!(is_valid_event_type(event_type), "Error: track must have a valid type. Found {event_type}");
+}
+
+fn is_event_field(field: &str) -> bool {
+    field == "type" || field == "ts" || field == "name" || field == "thread_name" || field == "pid" || field == "tid"
 }
 
 fn is_valid_event_type(event: &str) -> bool {

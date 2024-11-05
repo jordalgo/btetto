@@ -66,6 +66,7 @@ message InternedData {
   // Note: field IDs up to 15 should be used for frequent data only.
 
   repeated EventName event_names = 2;
+  repeated DebugAnnotationName debug_annotation_names = 3;
   // Build IDs of exectuable files.
   repeated InternedString build_ids = 16;
   // Paths to executable files.
