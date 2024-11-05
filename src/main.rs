@@ -14,6 +14,7 @@ use protos::protos_gen::perfetto_bpftrace::{
 // cargo build && sudo bpftrace ~/jordan.bt -f json | ./target/debug/btetto
 
 struct Ids {
+    flow_name_ids: HashMap<String, u64>,
     name_uuids: HashMap<String, u64>,
     pid_tid_uuids: HashMap<u64, HashMap<u64, u64>>,
     string_ids: HashMap<String, u64>,
@@ -23,10 +24,11 @@ struct Ids {
 static mut IS_FIRST_PACKET: bool = true;
 static mut IS_TRACE_DONE: bool = false;
 static mut TRACK_DESCRIPTOR_UUID: u64 = 1;
+static mut FLOW_UUID: u64 = 1;
 
 fn main() {
     let mut trace = Trace::new();
-    let mut ids = Ids { name_uuids: HashMap::new(), pid_tid_uuids: HashMap::new(), string_ids: HashMap::new(), interned_data_id: 1 };
+    let mut ids = Ids { flow_name_ids: HashMap::new(), name_uuids: HashMap::new(), pid_tid_uuids: HashMap::new(), string_ids: HashMap::new(), interned_data_id: 1 };
     
     let packet = TracePacket::new();
     trace.packet.push(packet);
@@ -196,6 +198,15 @@ fn add_track_descriptor_counter(descriptor: HashMap<&str, Value>, trace: &mut Tr
         "unspecified" => {
             counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_UNSPECIFIED.into())
         },
+        "count" => {
+            counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_COUNT.into())
+        },
+        "sized_bytes" => {
+            counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_SIZE_BYTES.into())
+        },
+        "time_ns" => {
+            counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_TIME_NS.into())
+        },
         _=> panic!("Error: Unknown unit type {}", unit)
     }
     
@@ -281,6 +292,7 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         },
         "COUNTER" => {
             track_event.type_ = Some(track_event::Type::TYPE_COUNTER.into());
+            track_event.counter_value_field = Some(track_event::Counter_value_field::CounterValue(event["counter_value"].as_i64().unwrap()));
         }
         _=> panic!("Error: Unknown event type {event_type}")
     }
@@ -288,6 +300,15 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     if event_type != "COUNTER" {
         for (key, value) in event.into_iter() {
             if is_event_field(key) {
+                continue;
+            }
+            if key == "flow_name" {
+                let flow_name = value.as_str().unwrap();
+                if !ids.flow_name_ids.contains_key(flow_name) {
+                    ids.flow_name_ids.insert(flow_name.to_string(), gen_flow_id());
+                }
+                let flow_id = ids.flow_name_ids[flow_name];
+                track_event.flow_ids.push(flow_id);
                 continue;
             }
             let mut debug_annotation = DebugAnnotation::new();
@@ -392,6 +413,13 @@ fn gen_uuid() -> u64 {
     unsafe {
         TRACK_DESCRIPTOR_UUID += 1;
         TRACK_DESCRIPTOR_UUID 
+    }
+}
+
+fn gen_flow_id() -> u64 {
+    unsafe {
+        FLOW_UUID += 1;
+        FLOW_UUID 
     }
 }
 

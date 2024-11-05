@@ -1,0 +1,11 @@
+#!/usr/bin/env bpftrace
+
+BEGIN {
+     print(("track_descriptor", ("counter", "Donut Counts"), ("unit", "count")));
+}
+
+hardware:cpu-cycles:10000000 {
+	print(("track_event", ("name", "my counter"), ("type", "COUNTER"), ("ts", nsecs), ("track_name", "Donut Counts"), ("counter_value", (rand % 1000))));
+}
+
+ 
