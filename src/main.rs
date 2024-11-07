@@ -74,7 +74,7 @@ fn main() {
         input.clear();
     }
     
-    println!("Num trace events {}", trace.packet.len());
+    println!("Writing {} events to trace file: bpftrace_trace.binpb", trace.packet.len());
     
     let out_bytes: Vec<u8> = trace.write_to_bytes().unwrap();
     
@@ -345,6 +345,8 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     
 }
 
+//  Example call stack samples
+// print(("call_stack", ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm), ("kstack", kstack), ("ustack", ustack)));
 fn add_call_stack_sample(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     let mut event = HashMap::new();
     
