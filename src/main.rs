@@ -9,11 +9,12 @@ mod protos;
 
 use protobuf::Message;
 use protos::protos_gen::perfetto_bpftrace::{
-    DebugAnnotation, DebugAnnotationName, CounterDescriptor, EventName, InternedData, InternedString, Trace, TracePacket, TrackDescriptor, ThreadDescriptor, TrackEvent, counter_descriptor, debug_annotation, track_descriptor, track_event, trace_packet};
+    DebugAnnotation, DebugAnnotationName, Callstack, CounterDescriptor, EventName, Frame, InternedData, InternedString, Mapping, PerfSample, Trace, TracePacket, TrackDescriptor, ThreadDescriptor, TrackEvent, counter_descriptor, debug_annotation, profiling, track_descriptor, track_event, trace_packet};
 
 // cargo build && sudo bpftrace ~/jordan.bt -f json | ./target/debug/btetto
 
 struct Ids {
+    call_stack_ids: HashMap<Vec<u64>, u64>,
     flow_name_ids: HashMap<String, u64>,
     name_uuids: HashMap<String, u64>,
     pid_tid_uuids: HashMap<u64, HashMap<u64, u64>>,
@@ -22,13 +23,14 @@ struct Ids {
 }
 
 static mut IS_FIRST_PACKET: bool = true;
+static mut IS_FIRST_CALL_SAMPLE: bool = true;
 static mut IS_TRACE_DONE: bool = false;
 static mut TRACK_DESCRIPTOR_UUID: u64 = 1;
 static mut FLOW_UUID: u64 = 1;
 
 fn main() {
     let mut trace = Trace::new();
-    let mut ids = Ids { flow_name_ids: HashMap::new(), name_uuids: HashMap::new(), pid_tid_uuids: HashMap::new(), string_ids: HashMap::new(), interned_data_id: 1 };
+    let mut ids = Ids { call_stack_ids: HashMap::new(), flow_name_ids: HashMap::new(), name_uuids: HashMap::new(), pid_tid_uuids: HashMap::new(), string_ids: HashMap::new(), interned_data_id: 1 };
     
     let packet = TracePacket::new();
     trace.packet.push(packet);
@@ -93,8 +95,7 @@ fn parse_raw_data(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     } else if data_type == "track_event" {
         add_track_event(trace, &data, ids);
     } else if data_type == "call_stack" {
-        // add_call_stack_sample(trace, data, data_len);
-        return;
+        add_call_stack_sample(trace, &data, ids);
     } else {
         panic!("The first field is not a valid trace data type");
     }
@@ -130,8 +131,7 @@ fn add_track_descriptor(trace: &mut Trace, data: &Value, ids: &mut Ids) {
 fn add_track_descriptor_name(descriptor: HashMap<&str, Value>, trace: &mut Trace, ids: &mut Ids)
 {
     let track_name = descriptor["name"].as_str().unwrap();
-    let track_uuid = get_uuid_for_name(&track_name, &ids);
-    if track_uuid.is_some() {
+    if get_uuid_for_name(&track_name, &ids).is_some() {
         // Already have this track descriptor, no need to re-add it
         return;
     }
@@ -172,8 +172,7 @@ fn add_track_descriptor_thread(descriptor: HashMap<&str, Value>, trace: &mut Tra
 fn add_track_descriptor_counter(descriptor: HashMap<&str, Value>, trace: &mut Trace, ids: &mut Ids)
 {
     let counter_name = descriptor["counter"].as_str().unwrap();
-    let track_uuid = get_uuid_for_name(&counter_name, &ids);
-    if track_uuid.is_some() {
+    if  get_uuid_for_name(&counter_name, &ids).is_some() {
         // Already have this track descriptor, no need to re-add it
         return;
     }
@@ -346,12 +345,87 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     
 }
 
+fn add_call_stack_sample(trace: &mut Trace, data: &Value, ids: &mut Ids) {
+    let mut event = HashMap::new();
+    
+    for i in 1..data.as_array().unwrap().len() {
+        let pair = &data[i];
+        assert!(pair.is_array() && pair.as_array().unwrap().len() == 2, "Expecting key/value tuples. Found {pair}");
+        let key = &pair[0];
+        assert!(key.is_string(), "Expecting key to be a string. Found {key}");
+        // do these have to be clones?
+        event.insert(key.as_str().unwrap(), pair[1].clone());
+    }
+    
+    validate_call_stack_sample(&event);
+    
+    let pid = event["pid"].as_u64().unwrap();
+    let tid = event["tid"].as_u64().unwrap();
+    if get_uuid_for_pid_tid(&pid, &tid, &ids).is_none() {
+        // Track descriptor doesn't exist, let's make one
+        add_track_descriptor_thread_impl(trace, &pid, &tid, event["thread_name"].as_str(), ids);
+    }
+    
+    let mut packet = TracePacket::new();
+    packet.optional_trusted_packet_sequence_id = Some(trace_packet::Optional_trusted_packet_sequence_id::TrustedPacketSequenceId(1));
+    
+    let mut perf_sample = PerfSample::new();
+    perf_sample.cpu_mode = Some(profiling::CpuMode::MODE_USER.into());
+    
+    set_sequence_flags(&mut packet);
+    
+    let mut interned_data = InternedData::new();
+    
+    unsafe {
+        if IS_FIRST_CALL_SAMPLE {
+            let mut dummy_mapping = Mapping::new();
+            dummy_mapping.iid = Some(1);
+            interned_data.mappings.push(dummy_mapping);
+            IS_FIRST_CALL_SAMPLE = false;
+        }
+    }
+    
+    perf_sample.pid = Some(event["pid"].as_u64().unwrap() as u32);
+    perf_sample.tid = Some(event["tid"].as_u64().unwrap() as u32);
+    
+    if event.contains_key("cpu") {
+        perf_sample.cpu = Some(event["cpu"].as_u64().unwrap() as u32);
+    }
+    
+    let callstack_iid: Option<u64>;
+    
+    if event.contains_key("kstack") {
+        if event.contains_key("ustack") {
+            callstack_iid = process_call_stacks(&mut interned_data, ids, event["kstack"].as_str().unwrap(), event["ustack"].as_str());
+        } else {
+            callstack_iid = process_call_stacks(&mut interned_data, ids, event["kstack"].as_str().unwrap(), None);
+        }
+    } else {
+        callstack_iid = process_call_stacks(&mut interned_data, ids, event["ustack"].as_str().unwrap(), None);
+    }
+    
+    perf_sample.callstack_iid = callstack_iid;
+    
+    packet.timestamp = Some(event["ts"].as_u64().unwrap());
+    packet.interned_data = Some(interned_data).into();
+    packet.data = Some(trace_packet::Data::PerfSample(perf_sample));
+    trace.packet.push(packet);
+    
+}
+
 fn validate_track_event(event: &HashMap<&str, serde_json::Value>) {
     assert!(event.contains_key("name"), "Error: track event must have a name");
     assert!(event.contains_key("ts"), "Error: track event must have a ts (timestamp)");
     let event_type = event["type"].as_str().unwrap();
     assert!(event.contains_key("type"), "Error: track must have a valid type");
     assert!(is_valid_event_type(event_type), "Error: track must have a valid type. Found {event_type}");
+}
+
+fn validate_call_stack_sample(event: &HashMap<&str, serde_json::Value>) {
+    assert!(event.contains_key("ts"), "Error: call stack sample must have a ts (timestamp)");
+    assert!(event.contains_key("pid"), "Error: call stack sample must have a pid");
+    assert!(event.contains_key("tid"), "Error: call stack sample must have a tid");
+    assert!(event.contains_key("ustack") || event.contains_key("kstack"), "Error: call stack sample must have a ustack or a kstack or both");
 }
 
 fn is_event_field(field: &str) -> bool {
@@ -446,4 +520,76 @@ fn get_string_id(s: &str, ids: &mut Ids) -> (u64, bool)
     }
     
     (ids.string_ids[s], added)
+}
+
+// If there is a second stack it's always the user stack
+fn process_call_stacks(interned_data: &mut InternedData, ids: &mut Ids, stack1str: &str, stack2str: Option<&str>) -> Option<u64>
+{
+    let stack1 = parse_stack_str(&stack1str);
+    if stack2str.is_some() {
+        let stack2 = parse_stack_str(stack2str.unwrap());
+        let concat_stack = [stack1, stack2].concat();
+        if concat_stack.len() == 0 {
+            return None;
+        }
+        return Some(add_call_stack(&concat_stack, interned_data, ids));
+    } else {
+        if stack1.len() == 0 {
+            return None;
+        }
+        return Some(add_call_stack(&stack1, interned_data, ids));
+    }
+}    
+    
+fn parse_stack_str(stack1str: &str) -> Vec<String>
+{
+    let mut stack1: Vec<&str> = stack1str.split('\n').collect();
+    stack1.remove(0);
+    stack1.pop();
+    return stack1.into_iter().map(|x| x.trim().to_string()).collect();
+}
+
+fn add_call_stack(stack: &Vec<String>, interned_data: &mut InternedData, ids: &mut Ids) -> u64
+{
+    let mut stack_ids: Vec<u64> = Vec::new();
+    for frame in stack {
+        stack_ids.push(add_stack_frame(frame, interned_data, ids));
+    }
+    if !ids.call_stack_ids.contains_key(&stack_ids) {
+        ids.interned_data_id += 1;
+        let cs_id = ids.interned_data_id;
+        ids.call_stack_ids.insert(stack_ids.clone(), cs_id);
+        let mut callstack = Callstack::new();
+        callstack.iid = Some(cs_id.clone());
+        // Perfetto wants bottom frame first
+        for x in stack_ids.into_iter().rev() {
+            callstack.frame_ids.push(x);
+        }
+        interned_data.callstacks.push(callstack);
+        return cs_id;
+    }
+    return ids.call_stack_ids[&stack_ids];
+}
+
+fn add_stack_frame(frame: &String, interned_data: &mut InternedData, ids: &mut Ids) -> u64
+{
+    let string_id_pair = get_string_id(frame, ids);
+    
+    if string_id_pair.1 {
+        let mut is = InternedString::new();
+        is.iid = Some(string_id_pair.0);
+        is.str = Some(frame.as_bytes().to_vec());
+        interned_data.function_names.push(is);
+        
+        let mut f = Frame::new();
+        ids.interned_data_id += 1;
+        f.iid = Some(ids.interned_data_id);
+        f.function_name_id = Some(string_id_pair.0);
+        f.mapping_id = Some(1);
+        interned_data.frames.push(f);
+        return ids.interned_data_id;
+    }
+
+    // The frame id is always one greater than the string id
+    return string_id_pair.0 + 1;
 }

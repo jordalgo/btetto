@@ -1,0 +1,9 @@
+#!/usr/bin/env bpftrace
+
+config = {
+    lazy_symbolication=1;
+}
+
+hardware:cpu-cycles:10000000 {
+	print(("call_stack", ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm), ("kstack", kstack), ("ustack", ustack)));
+}
