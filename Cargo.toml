@@ -2,6 +2,11 @@
 name = "btetto"
 version = "0.1.0"
 edition = "2021"
+license = "BSD-2-Clause OR LGPL-2.1"
+description = "A tool that produces Perfetto protobuf from formatted bpftrace output."
+repository = "https://github.com/jordalgo/btetto"
+homepage = "https://github.com/jordalgo/btetto/blob/trunk/README.md"
+readme = "README.md"
 
 [dependencies]
 ctrlc = "3.4.5"
