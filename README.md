@@ -15,6 +15,8 @@ btetto.py produces a bpftrace_trace.binpb protobuf file, which can then be loade
 # bpftrace Output Format
 The print output from bpftrace should be tuples (in JSON format e.g. `-f json`) where the first item in the tuple is the event type and the rest of the items are key/value tuples.
 
+[**Examples**](./example_scripts/)
+
 ## Event Types
 - track_event
 - track_descriptor
