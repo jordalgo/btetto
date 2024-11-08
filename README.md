@@ -2,6 +2,8 @@
 
 A tool that produces [Perfetto](https://perfetto.dev/) protobuf from formatted [bpftrace](https://github.com/bpftrace/bpftrace) output.
 
+[Rust Crate available here](https://crates.io/crates/btetto)
+
 # Usage
 ```
 $ sudo bpftrace my_script.bt -f json | ./btetto
