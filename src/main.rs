@@ -9,7 +9,7 @@ mod protos;
 
 use protobuf::Message;
 use protos::protos_gen::perfetto_bpftrace::{
-    DebugAnnotation, DebugAnnotationName, Callstack, CounterDescriptor, EventName, Frame, InternedData, InternedString, Mapping, PerfSample, Trace, TracePacket, TrackDescriptor, ThreadDescriptor, TrackEvent, counter_descriptor, debug_annotation, profiling, track_descriptor, track_event, trace_packet};
+    DebugAnnotation, DebugAnnotationName, Callstack, CounterDescriptor, EventName, Frame, InternedData, InternedString, LogMessage, LogMessageBody, Mapping, PerfSample, Trace, TracePacket, TrackDescriptor, ThreadDescriptor, TrackEvent, counter_descriptor, debug_annotation, log_message, profiling, track_descriptor, track_event, trace_packet};
 
 // cargo build && sudo bpftrace ~/jordan.bt -f json | ./target/debug/btetto
 
@@ -218,7 +218,7 @@ fn add_track_descriptor_counter(descriptor: HashMap<&str, Value>, trace: &mut Tr
 // Example track events
 // print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "Sub Parent A")));
 // print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "Sub Parent A")));
-// print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("__a_bananas", 10), ("__a_greeting", "hello")));
+// print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("bananas", 10), ("greeting", "hello"), ("log", ("WARN", "this is my log message"))));
 fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     let mut event = HashMap::new();
     
@@ -294,6 +294,55 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
             track_event.counter_value_field = Some(track_event::Counter_value_field::CounterValue(event["counter_value"].as_i64().unwrap()));
         }
         _=> panic!("Error: Unknown event type {event_type}")
+    }
+    
+    if event.contains_key("log") {
+        assert!(event["log"].is_array(), "Error: log tuple value must be another tuple e.g. ('log', ('WARN', 'my log message'))");
+        let log_val = event["log"].as_array().unwrap();
+        let string_id_pair = get_string_id(log_val[1].as_str().unwrap(), ids);
+        let mut body_iid;
+        if string_id_pair.1 {
+            ids.interned_data_id += 1;
+            let mut log_message_body = LogMessageBody::new();
+            log_message_body.iid = Some(ids.interned_data_id);
+            log_message_body.body = Some(log_val[1].as_str().unwrap().to_string());
+            interned_data.log_message_body.push(log_message_body);
+            body_iid = ids.interned_data_id;
+        } else {
+            body_iid = string_id_pair.0 + 1;
+        }
+        let mut log_message = LogMessage::new();
+        log_message.body_iid = Some(body_iid);
+        
+        let log_level = log_val[0].as_str().unwrap();
+        match log_level {
+            "UNSPECIFIED" => {
+                log_message.prio = Some(log_message::Priority::PRIO_UNSPECIFIED.into());
+            },
+            "UNUSED" => {
+                log_message.prio = Some(log_message::Priority::PRIO_UNUSED.into());
+            },
+            "VERBOSE" => {
+                log_message.prio = Some(log_message::Priority::PRIO_VERBOSE.into());
+            },
+            "DEBUG" => {
+                log_message.prio = Some(log_message::Priority::PRIO_DEBUG.into());
+            },
+            "INFO" => {
+                log_message.prio = Some(log_message::Priority::PRIO_INFO.into());
+            },
+            "WARN" => {
+                log_message.prio = Some(log_message::Priority::PRIO_WARN.into());
+            },
+            "ERROR" => {
+                log_message.prio = Some(log_message::Priority::PRIO_ERROR.into());
+            },
+            "FATAL" => {
+                log_message.prio = Some(log_message::Priority::PRIO_FATAL.into());
+            },
+            _=> panic!("Error: Unknown log level {log_level}")
+        }
+        track_event.log_message = Some(log_message).into();
     }
     
     if event_type != "COUNTER" {
@@ -431,7 +480,7 @@ fn validate_call_stack_sample(event: &HashMap<&str, serde_json::Value>) {
 }
 
 fn is_event_field(field: &str) -> bool {
-    field == "type" || field == "ts" || field == "name" || field == "thread_name" || field == "pid" || field == "tid"
+    field == "type" || field == "ts" || field == "name" || field == "thread_name" || field == "pid" || field == "tid" || field == "log"
 }
 
 fn is_valid_event_type(event: &str) -> bool {

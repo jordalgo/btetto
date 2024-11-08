@@ -37,14 +37,27 @@ These have three types: "BEGIN", "END", and "COUNTER" where "ts" is the timestam
 - thread_name
 - tid
 - track_name
+- log
 
 If the field is not listed above it will get logged as an annotation on the event like "bananas" and "greeting" below.
 
 ```
-print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("bananas", 10), ("greeting", "hello")));
+print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("bananas", 10), ("greeting", "hello"), ("log", ("WARN", "this is my log message"))));
         
 print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm)));
 ```
+
+Note: The "log" tuple is a little different in that the value is another tuple where the first field is the log level and the second field is the log message e.g. ("log", ("FATAL", "This is error message")). These show up as "Android Logs" in Perfetto.
+
+**Valid Log Levels**
+- UNSPECIFIED
+- UNUSED
+- VERBOSE
+- DEBUG
+- INFO
+- WARN
+- ERROR
+- FATAL
 
 ## Track Descriptor
 These define track names in the Perfetto UI. At the moment only "track_event" event types can utilize custom tracks and to do that they need to set the track name in your track event (above) e.g. `(..., ("track_name", "Sub Parent A"))`.

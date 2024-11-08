@@ -15,7 +15,7 @@ kretfunc:handle_mm_fault /@pagefault_start[tid]/
     delete(@pagefault_start[tid]);
     
     if ($duration_ms > 10) {
-		print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("bananas", 10), ("greeting", "hello")));
+		print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("bananas", 10), ("greeting", "hello"), ("log", ("WARN", "this is my log message"))));
         
         print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm)));
     }
