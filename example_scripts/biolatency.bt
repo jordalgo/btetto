@@ -1,0 +1,20 @@
+BEGIN
+{
+	print(("stdout", "Tracing block device I/O... Hit Ctrl-C to end.\n"));
+}
+
+tracepoint:block:block_bio_queue
+{
+	@start[args.sector] = nsecs;
+}
+
+tracepoint:block:block_rq_complete,
+tracepoint:block:block_bio_complete
+/@start[args.sector]/
+{
+	print(("track_event", ("name", "block I/O"), ("type", "BEGIN"), ("ts", @start[args.sector]), ("pid", pid), ("tid", tid), ("thread_name", comm)));
+	
+	print(("track_event", ("name", "block I/O"), ("type", "END"), ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm)));
+
+	delete(@start, args.sector);
+}

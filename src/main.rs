@@ -249,8 +249,9 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         let tid = event["tid"].as_u64().unwrap();
         track_uuid = get_uuid_for_pid_tid(&pid, &tid, &ids);
         if track_uuid.is_none() {
+            let thread_name = if event.contains_key("thread_name") { event["thread_name"].as_str() } else { None };
             // Track descriptor doesn't exist, let's make one
-            track_uuid = Some(add_track_descriptor_thread_impl(trace, &pid, &tid, event["thread_name"].as_str(), ids))
+            track_uuid = Some(add_track_descriptor_thread_impl(trace, &pid, &tid, thread_name, ids))
         }
     } else {
         panic!("Error: track event must have either a pid and tid or a track_name");

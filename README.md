@@ -38,6 +38,7 @@ These have three types: "BEGIN", "END", and "COUNTER" where "ts" is the timestam
 - thread_name
 - tid
 - track_name
+- flow_name
 - log
 
 If the field is not listed above it will get logged as an annotation on the event like "bananas" and "greeting" below.
