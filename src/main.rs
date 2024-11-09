@@ -96,6 +96,8 @@ fn parse_raw_data(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         add_track_event(trace, &data, ids);
     } else if data_type == "call_stack" {
         add_call_stack_sample(trace, &data, ids);
+    } else if data_type == "stdout" {
+        println!("{}", data[1].as_str().unwrap());
     } else {
         panic!("The first field is not a valid trace data type");
     }
@@ -300,7 +302,7 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         assert!(event["log"].is_array(), "Error: log tuple value must be another tuple e.g. ('log', ('WARN', 'my log message'))");
         let log_val = event["log"].as_array().unwrap();
         let string_id_pair = get_string_id(log_val[1].as_str().unwrap(), ids);
-        let mut body_iid;
+        let body_iid;
         if string_id_pair.1 {
             ids.interned_data_id += 1;
             let mut log_message_body = LogMessageBody::new();

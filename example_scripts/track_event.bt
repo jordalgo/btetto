@@ -1,5 +1,9 @@
 #!/usr/bin/env bpftrace
 
+BEGIN {
+    print(("stdout", "Tracks the duration of page faults"));
+}
+
 tracepoint:exceptions:page_fault_user
 {
 	@pagefault_start[tid] = nsecs;

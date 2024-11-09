@@ -23,6 +23,7 @@ The print output from bpftrace should be tuples (in JSON format e.g. `-f json`) 
 - track_event
 - track_descriptor
 - call_stack
+- stdout
 
 ## Track Events (Spans)
 These have three types: "BEGIN", "END", and "COUNTER" where "ts" is the timestamp of when these events occurred.
@@ -107,4 +108,13 @@ These are for logging call stacks (kernel, user, or both) at specific points in 
 
 ```
 print(("call_stack", ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm), ("kstack", kstack), ("ustack", ustack)));
+```
+
+## stdout
+
+This just prints the value to the command line e.g.
+```
+BEGIN {
+    print(("stdout", "Tracks the duration of page faults"));
+}
 ```
