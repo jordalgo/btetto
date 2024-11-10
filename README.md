@@ -6,10 +6,15 @@ A tool that produces [Perfetto](https://perfetto.dev/) protobuf from formatted [
 
 # Usage
 ```
-$ sudo bpftrace my_script.bt -f json | ./btetto
+$ sudo bpftrace my_script.bt -f json | btetto
 Attached probes: 4
 ^C
 Writing 149 events to trace file: bpftrace_trace.binpb
+```
+
+You can also pass a bpftrace output file to btetto e.g.
+```
+btetto my_bpftrace_output
 ```
 
 btetto.py produces a bpftrace_trace.binpb protobuf file, which can then be loaded into the [Perfetto UI](https://ui.perfetto.dev/).

@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs;
-use std::io;
+use std::io::{self, BufRead};
+use std::fs::File;
+use std::path::Path;
 
 
 use serde_json::Value;
@@ -29,49 +32,71 @@ static mut TRACK_DESCRIPTOR_UUID: u64 = 1;
 static mut FLOW_UUID: u64 = 1;
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
     let mut trace = Trace::new();
     let mut ids = Ids { call_stack_ids: HashMap::new(), flow_name_ids: HashMap::new(), name_uuids: HashMap::new(), pid_tid_uuids: HashMap::new(), string_ids: HashMap::new(), interned_data_id: 1 };
     
     let packet = TracePacket::new();
     trace.packet.push(packet);
     
-    ctrlc::set_handler(|| {
-        unsafe {
-            IS_TRACE_DONE = true;   
-        }
-    })
-    .expect("Error setting Ctrl-C handler");
-    
-    let mut input = String::new();
-    loop {
-        unsafe {
-            if IS_TRACE_DONE {
-                break;
-            }   
-        }
-        
-        io::stdin().read_line(&mut input).expect("Failed to read line");
-        if input.is_empty() {
-            break;
-        }
-        let parse_json_line = serde_json::from_str(&input);
-        if parse_json_line.is_err() {
-            unsafe {
-                if !IS_TRACE_DONE {
-                    println!("Error parsing json line {}", input.clone());   
+    let args_len = args.len();
+    if args_len > 2 {
+        panic!("btetto only supports one argument, an optional filename.");
+    } else if args_len == 2 {
+        if let Ok(lines) = read_lines(args[1].clone()) {
+            for line in lines.flatten() {
+                let parse_json_line = serde_json::from_str(&line);
+                if parse_json_line.is_err() {
+                    panic!("Error parsing json line {}", &line);
+                }
+                let json_line: Value = parse_json_line.unwrap();
+                let out_type = &json_line["type"];
+                if out_type == "value" {
+                    parse_raw_data(&mut trace, &json_line["data"], &mut ids);
                 }
             }
-            break;
+        } else {
+            panic!("Could not read file {}", args[1].clone());
         }
-        let json_line: Value = parse_json_line.unwrap();
-        let out_type = &json_line["type"];
-        if out_type == "attached_probes" {
-           let num_probes = &json_line["data"]["probes"];
-           println!("Attaching {} probes...", num_probes); 
-        } else if out_type == "value" {
-            parse_raw_data(&mut trace, &json_line["data"], &mut ids);
-        }
-        input.clear();
+    } else {
+        ctrlc::set_handler(|| {
+            unsafe {
+                IS_TRACE_DONE = true;   
+            }
+        })
+        .expect("Error setting Ctrl-C handler");
+        
+        let mut input = String::new();
+        loop {
+            unsafe {
+                if IS_TRACE_DONE {
+                    break;
+                }   
+            }
+            
+            io::stdin().read_line(&mut input).expect("Failed to read line");
+            if input.is_empty() {
+                break;
+            }
+            let parse_json_line = serde_json::from_str(&input);
+            if parse_json_line.is_err() {
+                unsafe {
+                    if !IS_TRACE_DONE {
+                        println!("Error parsing json line {}", input.clone());   
+                    }
+                }
+                break;
+            }
+            let json_line: Value = parse_json_line.unwrap();
+            let out_type = &json_line["type"];
+            if out_type == "attached_probes" {
+               let num_probes = &json_line["data"]["probes"];
+               println!("Attaching {} probes...", num_probes); 
+            } else if out_type == "value" {
+                parse_raw_data(&mut trace, &json_line["data"], &mut ids);
+            }
+            input.clear();
+        }   
     }
     
     println!("Writing {} events to trace file: bpftrace_trace.binpb", trace.packet.len());
@@ -115,7 +140,6 @@ fn add_track_descriptor(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         assert!(pair.is_array() && pair.as_array().unwrap().len() == 2, "Expecting key/value tuples. Found {pair}");
         let key = &pair[0];
         assert!(key.is_string(), "Expecting key to be a string. Found {key}");
-        // do these have to be clones?
         descriptor.insert(key.as_str().unwrap(), pair[1].clone());
     }
     
@@ -646,4 +670,10 @@ fn add_stack_frame(frame: &String, interned_data: &mut InternedData, ids: &mut I
 
     // The frame id is always one greater than the string id
     return string_id_pair.0 + 1;
+}
+
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+where P: AsRef<Path>, {
+    let file = File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
 }
