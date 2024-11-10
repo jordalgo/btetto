@@ -1,19 +1,18 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::path::Path;
+use std::io::{self};
 
 use serde_json::Value;
 
 mod protos;
+mod util;
 
 use protobuf::Message;
 use protos::protos_gen::perfetto_bpftrace::{
-    counter_descriptor, debug_annotation, log_message, profiling, trace_packet, track_descriptor,
-    track_event, Callstack, CounterDescriptor, DebugAnnotation, DebugAnnotationName, EventName,
-    Frame, InternedData, InternedString, LogMessage, LogMessageBody, Mapping, PerfSample,
+    counter_descriptor, debug_annotation, profiling, trace_packet, track_descriptor, track_event,
+    Callstack, CounterDescriptor, DebugAnnotation, DebugAnnotationName, EventName, Frame,
+    InternedData, InternedString, LogMessage, LogMessageBody, Mapping, PerfSample,
     ThreadDescriptor, Trace, TracePacket, TrackDescriptor, TrackEvent,
 };
 
@@ -53,7 +52,7 @@ fn main() {
     if args_len > 2 {
         panic!("btetto only supports one argument, an optional filename.");
     } else if args_len == 2 {
-        if let Ok(lines) = read_lines(args[1].clone()) {
+        if let Ok(lines) = util::read_lines(args[1].clone()) {
             for line in lines.flatten() {
                 let parse_json_line = serde_json::from_str(&line);
                 if parse_json_line.is_err() {
@@ -280,7 +279,7 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         event.insert(key.as_str().unwrap(), pair[1].clone());
     }
 
-    validate_track_event(&event);
+    util::validate_track_event(&event);
 
     let mut track_uuid: Option<u64>;
 
@@ -339,24 +338,12 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     packet.timestamp = Some(event["ts"].as_u64().unwrap());
 
     let event_type = event["type"].as_str().unwrap();
+    track_event.type_ = Some(util::get_track_event_type(event_type).into());
 
-    match event_type {
-        "BEGIN" => {
-            track_event.type_ = Some(track_event::Type::TYPE_SLICE_BEGIN.into());
-        }
-        "END" => {
-            track_event.type_ = Some(track_event::Type::TYPE_SLICE_END.into());
-        }
-        "INSTANT" => {
-            track_event.type_ = Some(track_event::Type::TYPE_INSTANT.into());
-        }
-        "COUNTER" => {
-            track_event.type_ = Some(track_event::Type::TYPE_COUNTER.into());
-            track_event.counter_value_field = Some(track_event::Counter_value_field::CounterValue(
-                event["counter_value"].as_i64().unwrap(),
-            ));
-        }
-        _ => panic!("Error: Unknown event type {event_type}"),
+    if event_type == "COUNTER" {
+        track_event.counter_value_field = Some(track_event::Counter_value_field::CounterValue(
+            event["counter_value"].as_i64().unwrap(),
+        ));
     }
 
     if event.contains_key("log") {
@@ -381,39 +368,13 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         log_message.body_iid = Some(body_iid);
 
         let log_level = log_val[0].as_str().unwrap();
-        match log_level {
-            "UNSPECIFIED" => {
-                log_message.prio = Some(log_message::Priority::PRIO_UNSPECIFIED.into());
-            }
-            "UNUSED" => {
-                log_message.prio = Some(log_message::Priority::PRIO_UNUSED.into());
-            }
-            "VERBOSE" => {
-                log_message.prio = Some(log_message::Priority::PRIO_VERBOSE.into());
-            }
-            "DEBUG" => {
-                log_message.prio = Some(log_message::Priority::PRIO_DEBUG.into());
-            }
-            "INFO" => {
-                log_message.prio = Some(log_message::Priority::PRIO_INFO.into());
-            }
-            "WARN" => {
-                log_message.prio = Some(log_message::Priority::PRIO_WARN.into());
-            }
-            "ERROR" => {
-                log_message.prio = Some(log_message::Priority::PRIO_ERROR.into());
-            }
-            "FATAL" => {
-                log_message.prio = Some(log_message::Priority::PRIO_FATAL.into());
-            }
-            _ => panic!("Error: Unknown log level {log_level}"),
-        }
+        log_message.prio = Some(util::get_log_level(log_level).into());
         track_event.log_message = Some(log_message).into();
     }
 
     if event_type != "COUNTER" {
         for (key, value) in event.into_iter() {
-            if is_event_field(key) {
+            if util::is_event_field(key) {
                 continue;
             }
             if key == "flow_name" {
@@ -481,7 +442,7 @@ fn add_call_stack_sample(trace: &mut Trace, data: &Value, ids: &mut Ids) {
         event.insert(key.as_str().unwrap(), pair[1].clone());
     }
 
-    validate_call_stack_sample(&event);
+    util::validate_call_stack_sample(&event);
 
     let pid = event["pid"].as_u64().unwrap();
     let tid = event["tid"].as_u64().unwrap();
@@ -550,59 +511,6 @@ fn add_call_stack_sample(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     packet.interned_data = Some(interned_data).into();
     packet.data = Some(trace_packet::Data::PerfSample(perf_sample));
     trace.packet.push(packet);
-}
-
-fn validate_track_event(event: &HashMap<&str, serde_json::Value>) {
-    assert!(
-        event.contains_key("name"),
-        "Error: track event must have a name"
-    );
-    assert!(
-        event.contains_key("ts"),
-        "Error: track event must have a ts (timestamp)"
-    );
-    let event_type = event["type"].as_str().unwrap();
-    assert!(
-        event.contains_key("type"),
-        "Error: track must have a valid type"
-    );
-    assert!(
-        is_valid_event_type(event_type),
-        "Error: track must have a valid type. Found {event_type}"
-    );
-}
-
-fn validate_call_stack_sample(event: &HashMap<&str, serde_json::Value>) {
-    assert!(
-        event.contains_key("ts"),
-        "Error: call stack sample must have a ts (timestamp)"
-    );
-    assert!(
-        event.contains_key("pid"),
-        "Error: call stack sample must have a pid"
-    );
-    assert!(
-        event.contains_key("tid"),
-        "Error: call stack sample must have a tid"
-    );
-    assert!(
-        event.contains_key("ustack") || event.contains_key("kstack"),
-        "Error: call stack sample must have a ustack or a kstack or both"
-    );
-}
-
-fn is_event_field(field: &str) -> bool {
-    field == "type"
-        || field == "ts"
-        || field == "name"
-        || field == "thread_name"
-        || field == "pid"
-        || field == "tid"
-        || field == "log"
-}
-
-fn is_valid_event_type(event: &str) -> bool {
-    event == "BEGIN" || event == "COUNTER" || event == "END" || event == "INSTANT"
 }
 
 fn get_uuid_for_name(name: &str, ids: &Ids) -> Option<u64> {
@@ -711,9 +619,9 @@ fn process_call_stacks(
     stack1str: &str,
     stack2str: Option<&str>,
 ) -> Option<u64> {
-    let stack1 = parse_stack_str(&stack1str);
+    let stack1 = util::parse_stack_str(&stack1str);
     if stack2str.is_some() {
-        let stack2 = parse_stack_str(stack2str.unwrap());
+        let stack2 = util::parse_stack_str(stack2str.unwrap());
         let concat_stack = [stack1, stack2].concat();
         if concat_stack.len() == 0 {
             return None;
@@ -725,13 +633,6 @@ fn process_call_stacks(
         }
         return Some(add_call_stack(&stack1, interned_data, ids));
     }
-}
-
-fn parse_stack_str(stack1str: &str) -> Vec<String> {
-    let mut stack1: Vec<&str> = stack1str.split('\n').collect();
-    stack1.remove(0);
-    stack1.pop();
-    return stack1.into_iter().map(|x| x.trim().to_string()).collect();
 }
 
 fn add_call_stack(stack: &Vec<String>, interned_data: &mut InternedData, ids: &mut Ids) -> u64 {
@@ -775,12 +676,4 @@ fn add_stack_frame(frame: &String, interned_data: &mut InternedData, ids: &mut I
 
     // The frame id is always one greater than the string id
     return string_id_pair.0 + 1;
-}
-
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
-where
-    P: AsRef<Path>,
-{
-    let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())
 }
