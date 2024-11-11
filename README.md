@@ -31,11 +31,16 @@ The print output from bpftrace should be tuples (in JSON format e.g. `-f json`) 
 - stdout
 
 ## Track Events (Spans)
-These have three types: "BEGIN", "END", and "COUNTER" where "ts" is the timestamp of when these events occurred.
+
+**Track Event Types**
+- BEGIN
+- END
+- INSTANT
+- COUNTER
 
 **Required Fields**:
 - name
-- ts
+- ts (timestamp)
 - type
 
 **Optional Fields**:
