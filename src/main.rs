@@ -378,12 +378,17 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
                 continue;
             }
             if key == "flow_name" {
-                let flow_name = value.as_str().unwrap();
-                if !ids.flow_name_ids.contains_key(flow_name) {
-                    ids.flow_name_ids
-                        .insert(flow_name.to_string(), gen_flow_id());
+                let flow_name;
+                if value.is_number() {
+                    flow_name = value.as_u64().unwrap().to_string();
+                } else {
+                    flow_name = value.as_str().unwrap().to_string();
                 }
-                let flow_id = ids.flow_name_ids[flow_name];
+                if !ids.flow_name_ids.contains_key(&flow_name) {
+                    ids.flow_name_ids
+                        .insert(flow_name.clone(), gen_flow_id());
+                }
+                let flow_id = ids.flow_name_ids[&flow_name];
                 track_event.flow_ids.push(flow_id);
                 continue;
             }
