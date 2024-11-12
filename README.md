@@ -4,6 +4,8 @@ A tool that produces [Perfetto](https://perfetto.dev/) protobuf from formatted [
 
 [Rust Crate available here](https://crates.io/crates/btetto)
 
+<center><a href="images/btetto_track_event.png"><img src="images/btetto_track_event.png" border=0 width=700></a></center>
+
 # Usage
 ```
 $ sudo bpftrace my_script.bt -f json | btetto

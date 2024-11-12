@@ -2,6 +2,8 @@
 
 BEGIN {
     print(("stdout", "Tracks the duration of page faults"));
+    
+    print(("track_descriptor", ("counter", "Max Duration"), ("unit", "count")));
 }
 
 tracepoint:exceptions:page_fault_user
@@ -17,12 +19,18 @@ kretfunc:handle_mm_fault /@pagefault_start[tid]/
     $end = nsecs;
     $duration_ms = ($end - $start) / 1000;
     delete(@pagefault_start[tid]);
+    @mx = max($duration_ms);
     
     if ($duration_ms > 10) {
 		print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("pid", pid), ("tid", tid), ("thread_name", comm), ("bananas", 10), ("greeting", "hello"), ("log", ("WARN", "this is my log message"))));
         
         print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm)));
     }
+}
+
+interval:ms:100 {
+    print(("track_event", ("name", "Max Duration"), ("type", "COUNTER"), ("ts", nsecs), ("track_name", "Max Duration"), ("counter_value", @mx)));
+    clear(@mx);
 }
 
 END
