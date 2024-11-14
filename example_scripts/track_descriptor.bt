@@ -3,7 +3,6 @@
 BEGIN {
      print(("track_descriptor", ("name", "Top Parent")));
      print(("track_descriptor", ("name", "Sub Parent A"), ("parent", "Top Parent")));
-	 print(("track_descriptor", ("name", "Sub Parent B"), ("parent", "Top Parent")));
 }
 
 tracepoint:exceptions:page_fault_user
@@ -27,9 +26,9 @@ kretfunc:handle_mm_fault /@pagefault_start[tid]/
 			
 			print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "Sub Parent A")));
 		} else {
-			print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "Sub Parent B")));
+			print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "New Track")));
 			
-			print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "Sub Parent B")));
+			print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "New Track")));
 		}
     }
 }

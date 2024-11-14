@@ -159,7 +159,12 @@ fn add_track_descriptor(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     }
 
     if descriptor.contains_key("name") {
-        add_track_descriptor_name(descriptor, trace, ids);
+        if descriptor.contains_key("parent") {
+            add_track_descriptor_name(descriptor["name"].as_str().unwrap(), descriptor["parent"].as_str(), trace, ids);
+        } else {
+            add_track_descriptor_name(descriptor["name"].as_str().unwrap(), None, trace, ids);
+        }
+        
     } else if descriptor.contains_key("thread_name") {
         add_track_descriptor_thread(descriptor, trace, ids);
     } else if descriptor.contains_key("counter") {
@@ -169,11 +174,11 @@ fn add_track_descriptor(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     }
 }
 
-fn add_track_descriptor_name(descriptor: HashMap<&str, Value>, trace: &mut Trace, ids: &mut Ids) {
-    let track_name = descriptor["name"].as_str().unwrap();
-    if get_uuid_for_name(&track_name, &ids).is_some() {
+fn add_track_descriptor_name(track_name: &str, parent_name: Option<&str>, trace: &mut Trace, ids: &mut Ids) -> u64 {
+    let maybe_uuid = get_uuid_for_name(&track_name, &ids);
+    if maybe_uuid.is_some() {
         // Already have this track descriptor, no need to re-add it
-        return;
+        return maybe_uuid.unwrap().clone();
     }
 
     let uuid = gen_uuid();
@@ -186,10 +191,10 @@ fn add_track_descriptor_name(descriptor: HashMap<&str, Value>, trace: &mut Trace
     ));
     track_descriptor.uuid = Some(uuid);
 
-    if descriptor.contains_key("parent") {
-        let parent_uuid = get_uuid_for_name(&descriptor["parent"].as_str().unwrap(), &ids);
+    if parent_name.is_some() {
+        let parent_uuid = get_uuid_for_name(&parent_name.unwrap(), &ids);
         if parent_uuid.is_none() {
-            let parent_name = descriptor["name"].clone();
+            let parent_name = parent_name.unwrap();
             panic!(
                 "Error: can't find track descriptor with name {}",
                 parent_name
@@ -200,6 +205,8 @@ fn add_track_descriptor_name(descriptor: HashMap<&str, Value>, trace: &mut Trace
 
     packet.data = Some(trace_packet::Data::TrackDescriptor(track_descriptor));
     trace.packet.push(packet);
+    
+    return uuid;
 }
 
 fn add_track_descriptor_thread(descriptor: HashMap<&str, Value>, trace: &mut Trace, ids: &mut Ids) {
@@ -285,11 +292,7 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
 
     if event.contains_key("track_name") {
         let track_name = event["track_name"].as_str().unwrap();
-        track_uuid = get_uuid_for_name(track_name, &ids);
-        if track_uuid.is_none() {
-            println!("Error: track name {} not found in track descriptors. You must emit a track descriptor tuple for each track_name track_event. Skipping", track_name);
-            return;
-        }
+        track_uuid = Some(add_track_descriptor_name(track_name, None, trace, ids));
     } else if event.contains_key("pid") && event.contains_key("tid") {
         let pid = event["pid"].as_u64().unwrap();
         let tid = event["tid"].as_u64().unwrap();
