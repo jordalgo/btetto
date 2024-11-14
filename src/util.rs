@@ -41,9 +41,6 @@ pub fn is_event_field(field: &str) -> bool {
     field == "type"
         || field == "ts"
         || field == "name"
-        || field == "thread_name"
-        || field == "pid"
-        || field == "tid"
         || field == "log"
 }
 
