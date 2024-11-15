@@ -38,11 +38,7 @@ pub fn get_log_level(log_level: &str) -> log_message::Priority {
 }
 
 pub fn is_event_field(field: &str) -> bool {
-    field == "type"
-        || field == "ts"
-        || field == "name"
-        || field == "log"
-        || field == "track_name"
+    field == "type" || field == "ts" || field == "name" || field == "log" || field == "track_name"
 }
 
 fn is_valid_event_type(event: &str) -> bool {

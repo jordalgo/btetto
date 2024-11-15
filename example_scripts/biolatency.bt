@@ -12,9 +12,23 @@ tracepoint:block:block_rq_complete,
 tracepoint:block:block_bio_complete
 /@start[args.sector]/
 {
-	print(("track_event", ("name", "block I/O"), ("type", "BEGIN"), ("ts", @start[args.sector]), ("pid", pid), ("tid", tid), ("thread_name", comm)));
+	print(("track_event",
+		("name", "block I/O"),
+		("type", "BEGIN"),
+		("ts", @start[args.sector]),
+		("pid", pid),
+		("tid", tid),
+		("thread_name", comm)
+	));
 	
-	print(("track_event", ("name", "block I/O"), ("type", "END"), ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm)));
+	print(("track_event",
+		("name", "block I/O"),
+		("type", "END"),
+		("ts", nsecs),
+		("pid", pid),
+		("tid", tid),
+		("thread_name", comm)
+	));
 
 	delete(@start, args.sector);
 }

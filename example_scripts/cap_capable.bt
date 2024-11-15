@@ -56,12 +56,6 @@ BEGIN
 	@cap[38] = "CAP_PERFMON";
 	@cap[39] = "CAP_BPF";
 	@cap[40] = "CAP_CHECKPOINT_RESTORE";
-	
-	$i = 0;
-	unroll(41) {
-		print(("track_descriptor", ("name", @cap[$i])));
-		$i++;
-	}
 }
 
 kprobe:cap_capable
@@ -69,7 +63,18 @@ kprobe:cap_capable
 	$cap = arg2;
 	$audit = arg3;
 	
-	print(("track_event", ("name", "cap_capable"), ("type", "INSTANT"), ("ts", nsecs), ("pid", pid), ("tid", tid), ("thread_name", comm), ("uid", uid), ("track_name", @cap[$cap]), ("audit", str($audit))));
+	print(("track_event",
+		("name", "cap_capable"),
+		("type", "INSTANT"),
+		("ts", nsecs),
+		("pid", pid), 
+		("tid", tid),
+		("thread_name", comm),
+		("uid", uid),
+		("track_parent", @cap[$cap]),
+		("track", comm),
+		("audit", str($audit))
+	));
 }
 
 END

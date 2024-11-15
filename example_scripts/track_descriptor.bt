@@ -1,10 +1,5 @@
 #!/usr/bin/env bpftrace
 
-BEGIN {
-     print(("track_descriptor", ("name", "Top Parent")));
-     print(("track_descriptor", ("name", "Sub Parent A"), ("parent", "Top Parent")));
-}
-
 tracepoint:exceptions:page_fault_user
 {
 	@pagefault_start[tid] = nsecs;
@@ -22,13 +17,37 @@ kretfunc:handle_mm_fault /@pagefault_start[tid]/
     if ($duration_ms > 10) {
 		
 		if ((pid % 2) == 0) {
-			print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "Sub Parent A")));
+			 print(("track_event",
+				("name", "page_fault_user"),
+				("type", "BEGIN"),
+				("ts", $start),
+				("track", "Child A"),
+				("track_parent", "Top Parent")
+			));
 			
-			print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "Sub Parent A")));
+			print(("track_event",
+				("name", "page_fault_user"),
+				("type", "END"),
+				("ts", nsecs),
+				("track", "Child A"),
+				("track_parent", "Top Parent")
+			));
 		} else {
-			print(("track_event", ("name", "page_fault_user"), ("type", "BEGIN"), ("ts", $start), ("track_name", "New Track")));
+			print(("track_event",
+				("name", "page_fault_user"),
+				("type", "BEGIN"),
+				("ts", $start),
+				("track", "Child B"),
+				("track_parent", "Top Parent")
+			));
 			
-			print(("track_event", ("name", "page_fault_user"), ("type", "END"), ("ts", nsecs), ("track_name", "New Track")));
+			print(("track_event",
+				("name", "page_fault_user"),
+				("type", "END"),
+				("ts", nsecs),
+				("track", "Child B"),
+				("track_parent", "Top Parent")
+			));
 		}
     }
 }

@@ -127,9 +127,7 @@ fn parse_raw_data(trace: &mut Trace, data: &Value, ids: &mut Ids) {
 
     let data_type = &data[0];
 
-    if data_type == "track_descriptor" {
-        add_track_descriptor(trace, &data, ids);
-    } else if data_type == "track_event" {
+    if data_type == "track_event" {
         add_track_event(trace, &data, ids);
     } else if data_type == "call_stack" {
         add_call_stack_sample(trace, &data, ids);
@@ -140,49 +138,27 @@ fn parse_raw_data(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     }
 }
 
-// Valid track descriptor tuples
-// print(("track_descriptor", ("thread_name", comm), ("pid", pid), ("tid", tid)));
-// print(("track_descriptor", ("name", "my custom track"), ("parent", "Top Parent")));
-// print(("track_descriptor", ("counter", "counter name"), ("unit", "count")));
-fn add_track_descriptor(trace: &mut Trace, data: &Value, ids: &mut Ids) {
-    let mut descriptor = HashMap::new();
-
-    for i in 1..data.as_array().unwrap().len() {
-        let pair = &data[i];
-        assert!(
-            pair.is_array() && pair.as_array().unwrap().len() == 2,
-            "Expecting key/value tuples. Found {pair}"
-        );
-        let key = &pair[0];
-        assert!(key.is_string(), "Expecting key to be a string. Found {key}");
-        descriptor.insert(key.as_str().unwrap(), pair[1].clone());
-    }
-
-    if descriptor.contains_key("name") {
-        if descriptor.contains_key("parent") {
-            add_track_descriptor_name(descriptor["name"].as_str().unwrap(), descriptor["parent"].as_str(), trace, ids);
-        } else {
-            add_track_descriptor_name(descriptor["name"].as_str().unwrap(), None, trace, ids);
-        }
-        
-    } else if descriptor.contains_key("thread_name") {
-        add_track_descriptor_thread(descriptor, trace, ids);
-    } else if descriptor.contains_key("counter") {
-        add_track_descriptor_counter(descriptor, trace, ids);
+fn add_track_descriptor_name(
+    track_name: &str,
+    parent_name: Option<&str>,
+    trace: &mut Trace,
+    ids: &mut Ids,
+) -> u64 {
+    let full_name;
+    if parent_name.is_some() {
+        let parent = parent_name.unwrap();
+        full_name = format!("{parent}/{track_name}");
     } else {
-        panic!("Error: Track descriptor is invalid");
+        full_name = track_name.to_string();
     }
-}
 
-fn add_track_descriptor_name(track_name: &str, parent_name: Option<&str>, trace: &mut Trace, ids: &mut Ids) -> u64 {
-    let maybe_uuid = get_uuid_for_name(&track_name, &ids);
+    let maybe_uuid = get_uuid_for_name(&full_name, &ids);
     if maybe_uuid.is_some() {
-        // Already have this track descriptor, no need to re-add it
         return maybe_uuid.unwrap().clone();
     }
 
     let uuid = gen_uuid();
-    ids.name_uuids.insert(track_name.to_string(), uuid.clone());
+    ids.name_uuids.insert(full_name.to_string(), uuid.clone());
 
     let mut packet = TracePacket::new();
     let mut track_descriptor = TrackDescriptor::new();
@@ -192,43 +168,34 @@ fn add_track_descriptor_name(track_name: &str, parent_name: Option<&str>, trace:
     track_descriptor.uuid = Some(uuid);
 
     if parent_name.is_some() {
-        let parent_uuid = get_uuid_for_name(&parent_name.unwrap(), &ids);
+        let mut parent_uuid = get_uuid_for_name(&parent_name.unwrap(), &ids);
         if parent_uuid.is_none() {
-            let parent_name = parent_name.unwrap();
-            panic!(
-                "Error: can't find track descriptor with name {}",
-                parent_name
-            );
+            parent_uuid = Some(add_track_descriptor_name(
+                parent_name.unwrap(),
+                None,
+                trace,
+                ids,
+            ));
         }
         track_descriptor.parent_uuid = parent_uuid;
     }
 
     packet.data = Some(trace_packet::Data::TrackDescriptor(track_descriptor));
     trace.packet.push(packet);
-    
+
     return uuid;
 }
 
-fn add_track_descriptor_thread(descriptor: HashMap<&str, Value>, trace: &mut Trace, ids: &mut Ids) {
-    if !descriptor.contains_key("pid") || !descriptor.contains_key("tid") {
-        panic!("Error: track descriptor thread_name needs to have a pid and a tid");
-    }
-
-    let pid = descriptor["pid"].as_u64().unwrap();
-    let tid = descriptor["tid"].as_u64().unwrap();
-
-    add_track_descriptor_thread_impl(trace, &pid, &tid, descriptor["thread_name"].as_str(), ids);
-}
-
 fn add_track_descriptor_counter(
-    descriptor: HashMap<&str, Value>,
+    counter_name: &str,
+    unit: Option<&str>,
     trace: &mut Trace,
     ids: &mut Ids,
-) {
-    let counter_name = descriptor["counter"].as_str().unwrap();
-    if get_uuid_for_name(&counter_name, &ids).is_some() {
+) -> u64 {
+    let maybe_uuid = get_uuid_for_name(&counter_name, &ids);
+    if maybe_uuid.is_some() {
         // Already have this track descriptor, no need to re-add it
-        return;
+        return maybe_uuid.unwrap();
     }
 
     let uuid = gen_uuid();
@@ -242,29 +209,32 @@ fn add_track_descriptor_counter(
     ));
     track_descriptor.uuid = Some(uuid);
 
-    if !descriptor.contains_key("unit") {
-        panic!("Error: track descriptor counter needs to have a 'unit' tuple");
-    }
-
-    let unit = descriptor["unit"].as_str().unwrap();
-
     let mut counter_descriptor = CounterDescriptor::new();
 
-    match unit {
-        "unspecified" => {
-            counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_UNSPECIFIED.into())
+    // Count is the default
+    if unit.is_some() {
+        match unit.unwrap() {
+            "unspecified" => {
+                counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_UNSPECIFIED.into())
+            }
+            "count" => counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_COUNT.into()),
+            "sized_bytes" => {
+                counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_SIZE_BYTES.into())
+            }
+            "time_ns" => {
+                counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_TIME_NS.into())
+            }
+            _ => panic!("Error: Unknown unit type {}", unit.unwrap()),
         }
-        "count" => counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_COUNT.into()),
-        "sized_bytes" => {
-            counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_SIZE_BYTES.into())
-        }
-        "time_ns" => counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_TIME_NS.into()),
-        _ => panic!("Error: Unknown unit type {}", unit),
+    } else {
+        counter_descriptor.unit = Some(counter_descriptor::Unit::UNIT_COUNT.into());
     }
 
     track_descriptor.counter = Some(counter_descriptor).into();
     packet.data = Some(trace_packet::Data::TrackDescriptor(track_descriptor));
     trace.packet.push(packet);
+
+    return uuid;
 }
 
 // Example track events
@@ -288,11 +258,34 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
 
     util::validate_track_event(&event);
 
+    let event_type = event["type"].as_str().unwrap();
+
     let mut track_uuid: Option<u64>;
 
-    if event.contains_key("track_name") {
-        let track_name = event["track_name"].as_str().unwrap();
-        track_uuid = Some(add_track_descriptor_name(track_name, None, trace, ids));
+    if event.contains_key("track") {
+        let track_name = event["track"].as_str().unwrap();
+
+        if event_type == "COUNTER" {
+            if event.contains_key("unit") {
+                track_uuid = Some(add_track_descriptor_counter(
+                    track_name,
+                    event["unit"].as_str(),
+                    trace,
+                    ids,
+                ));
+            } else {
+                track_uuid = Some(add_track_descriptor_counter(track_name, None, trace, ids));
+            }
+        } else if event.contains_key("track_parent") {
+            track_uuid = Some(add_track_descriptor_name(
+                track_name,
+                event["track_parent"].as_str(),
+                trace,
+                ids,
+            ));
+        } else {
+            track_uuid = Some(add_track_descriptor_name(track_name, None, trace, ids));
+        }
     } else if event.contains_key("pid") && event.contains_key("tid") {
         let pid = event["pid"].as_u64().unwrap();
         let tid = event["tid"].as_u64().unwrap();
@@ -304,7 +297,7 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
                 None
             };
             // Track descriptor doesn't exist, let's make one
-            track_uuid = Some(add_track_descriptor_thread_impl(
+            track_uuid = Some(add_track_descriptor_thread(
                 trace,
                 &pid,
                 &tid,
@@ -313,7 +306,7 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
             ))
         }
     } else {
-        panic!("Error: track event must have either a pid and tid or a track_name");
+        panic!("Error: track event must have either a pid and tid or a track");
     }
 
     let mut packet = TracePacket::new();
@@ -340,7 +333,6 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
 
     packet.timestamp = Some(event["ts"].as_u64().unwrap());
 
-    let event_type = event["type"].as_str().unwrap();
     track_event.type_ = Some(util::get_track_event_type(event_type).into());
 
     if event_type == "COUNTER" {
@@ -388,8 +380,7 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
                     flow_name = value.as_str().unwrap().to_string();
                 }
                 if !ids.flow_name_ids.contains_key(&flow_name) {
-                    ids.flow_name_ids
-                        .insert(flow_name.clone(), gen_flow_id());
+                    ids.flow_name_ids.insert(flow_name.clone(), gen_flow_id());
                 }
                 let flow_id = ids.flow_name_ids[&flow_name];
                 track_event.flow_ids.push(flow_id);
@@ -456,7 +447,7 @@ fn add_call_stack_sample(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     let tid = event["tid"].as_u64().unwrap();
     if get_uuid_for_pid_tid(&pid, &tid, &ids).is_none() {
         // Track descriptor doesn't exist, let's make one
-        add_track_descriptor_thread_impl(trace, &pid, &tid, event["thread_name"].as_str(), ids);
+        add_track_descriptor_thread(trace, &pid, &tid, event["thread_name"].as_str(), ids);
     }
 
     let mut packet = TracePacket::new();
@@ -541,7 +532,7 @@ fn get_uuid_for_pid_tid(pid: &u64, tid: &u64, ids: &Ids) -> Option<u64> {
     }
 }
 
-fn add_track_descriptor_thread_impl(
+fn add_track_descriptor_thread(
     trace: &mut Trace,
     pid: &u64,
     tid: &u64,
