@@ -106,7 +106,7 @@ print(("track_event",
 
 ### log
 
-The "log" tuple is a little different in that the value is another tuple where the first field is the log level and the second field is the log message e.g. ("log", ("FATAL", "This is an error message")). These show up as "Android Logs" in Perfetto.
+The `log` tuple is a little different in that the value is another tuple where the first field is the log level and the second field is the log message e.g. `("log", ("FATAL", "This is an error message"))`. These show up as "Android Logs" in Perfetto.
 
 **Valid Log Levels**
 - `UNSPECIFIED`
