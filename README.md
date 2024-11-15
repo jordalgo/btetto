@@ -34,25 +34,25 @@ The print output from bpftrace should be tuples (in JSON format e.g. `-f json`) 
 ## Track Events (Spans)
 
 **Track Event Types**
-- BEGIN
-- END
-- INSTANT
-- COUNTER
+- `BEGIN`
+- `END`
+- `INSTANT`
+- `COUNTER`
 
 **Required Fields**:
-- name
-- ts (timestamp)
-- type
+- `name`
+- `ts` (timestamp)
+- `type`
 
 **Optional Fields**:
-- pid
-- thread_name
-- tid
-- track
-- track_parent
-- unit
-- flow_name
-- log
+- `pid`
+- `thread_name`
+- `tid`
+- `track`
+- `track_parent`
+- `unit`
+- `flow_name`
+- `log`
 
 If the field is not listed above it will get logged as an annotation on the event like "bananas" and "greeting" below. pid, tid, and thread_name also get logged as annotations by default.
 
@@ -81,16 +81,16 @@ print(("track_event",
 
 ### track and track_parent
 
-These are used to name the "tracks" where these events exist. At the moment they can be nested one level, where you would provide both a "track" and a "track_parent" tuple (both strings).
+These are used to name the "tracks" where these events exist. At the moment they can be nested one level, where you would provide both a `track` and a `track_parent` tuple (both strings).
 
-If "track" is not provided, you must then provide "pid", "tid", and "thread_name" tuples and then these track events will go into global pid/tid "tracks".
+If `track` is not provided, you must then provide `pid`, `tid`, and `thread_name` tuples and then these track events will go into global pid/tid "tracks".
 
 ### unit
-These are for "COUNTER" type track events and can be:
-- unspecified
-- count (default if no "unit" is provided)
-- size_bytes
-- time_ns
+These are for `COUNTER` type track events and can be:
+- `unspecified`
+- `count` (default if no "unit" is provided)
+- `size_bytes`
+- `time_ns`
 
 Example:
 ```
@@ -109,26 +109,26 @@ print(("track_event",
 The "log" tuple is a little different in that the value is another tuple where the first field is the log level and the second field is the log message e.g. ("log", ("FATAL", "This is an error message")). These show up as "Android Logs" in Perfetto.
 
 **Valid Log Levels**
-- UNSPECIFIED
-- UNUSED
-- VERBOSE
-- DEBUG
-- INFO
-- WARN
-- ERROR
-- FATAL
+- `UNSPECIFIED`
+- `UNUSED`
+- `VERBOSE`
+- `DEBUG`
+- `INFO`
+- `WARN`
+- `ERROR`
+- `FATAL`
 
 ## Call Stack Sample
 These are for logging call stacks (kernel, user, or both) at specific points in time. They do not have durations.
 
 **Required Fields**:
-- pid
-- tid
-- ts
-- kstack or ustack (or both)
+- `pid`
+- `tid`
+- `ts`
+- `kstack` or `ustack` (or both)
 
 **Optional Fields**:
-- thread_name
+- `thread_name`
 
 ```
 print(("call_stack",
