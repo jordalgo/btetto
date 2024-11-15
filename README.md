@@ -27,9 +27,9 @@ The print output from bpftrace should be tuples (in JSON format e.g. `-f json`) 
 [**Examples**](./example_scripts/)
 
 ## Event Types
-- track_event
-- call_stack
-- stdout
+- `track_event`
+- `call_stack`
+- `stdout`
 
 ## Track Events (Spans)
 
