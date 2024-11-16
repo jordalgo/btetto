@@ -263,28 +263,29 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
     let mut track_uuid: Option<u64>;
 
     if event.contains_key("track") {
-        let track_name = event["track"].as_str().unwrap();
+        let track_name = if event["track"].is_number() { event["track"].as_u64().unwrap().to_string() } else { event["track"].as_str().unwrap().to_string() };
 
         if event_type == "COUNTER" {
             if event.contains_key("unit") {
                 track_uuid = Some(add_track_descriptor_counter(
-                    track_name,
+                    &track_name,
                     event["unit"].as_str(),
                     trace,
                     ids,
                 ));
             } else {
-                track_uuid = Some(add_track_descriptor_counter(track_name, None, trace, ids));
+                track_uuid = Some(add_track_descriptor_counter(&track_name, None, trace, ids));
             }
         } else if event.contains_key("track_parent") {
+            let track_parent = if event["track_parent"].is_number() { event["track_parent"].as_u64().unwrap().to_string() } else { event["track_parent"].as_str().unwrap().to_string() };
             track_uuid = Some(add_track_descriptor_name(
-                track_name,
-                event["track_parent"].as_str(),
+                &track_name,
+                Some(&track_parent),
                 trace,
                 ids,
             ));
         } else {
-            track_uuid = Some(add_track_descriptor_name(track_name, None, trace, ids));
+            track_uuid = Some(add_track_descriptor_name(&track_name, None, trace, ids));
         }
     } else if event.contains_key("pid") && event.contains_key("tid") {
         let pid = event["pid"].as_u64().unwrap();
@@ -372,17 +373,17 @@ fn add_track_event(trace: &mut Trace, data: &Value, ids: &mut Ids) {
             if util::is_event_field(key) {
                 continue;
             }
-            if key == "flow_name" {
-                let flow_name;
+            if key == "flow_id" {
+                let flow_id;
                 if value.is_number() {
-                    flow_name = value.as_u64().unwrap().to_string();
+                    flow_id = value.as_u64().unwrap().to_string();
                 } else {
-                    flow_name = value.as_str().unwrap().to_string();
+                    flow_id = value.as_str().unwrap().to_string();
                 }
-                if !ids.flow_name_ids.contains_key(&flow_name) {
-                    ids.flow_name_ids.insert(flow_name.clone(), gen_flow_id());
+                if !ids.flow_name_ids.contains_key(&flow_id) {
+                    ids.flow_name_ids.insert(flow_id.clone(), gen_flow_id());
                 }
-                let flow_id = ids.flow_name_ids[&flow_name];
+                let flow_id = ids.flow_name_ids[&flow_id];
                 track_event.flow_ids.push(flow_id);
                 continue;
             }

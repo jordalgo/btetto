@@ -33,26 +33,26 @@ The print output from bpftrace should be tuples (in JSON format e.g. `-f json`) 
 
 ## Track Events (Spans)
 
+**Required Fields**:
+- `name` (string)
+- `ts` (timestamp)
+- `type` (string - see below)
+
+**Optional Fields**:
+- `pid` (number)
+- `thread_name` (string)
+- `tid` (number)
+- `track` (string or number)
+- `track_parent` (string or number)
+- `unit` (string - see below)
+- `flow_id` (string or number)
+- `log` (tuple - see below)
+
 **Track Event Types**
 - `BEGIN`
 - `END`
 - `INSTANT`
 - `COUNTER`
-
-**Required Fields**:
-- `name`
-- `ts` (timestamp)
-- `type`
-
-**Optional Fields**:
-- `pid`
-- `thread_name`
-- `tid`
-- `track`
-- `track_parent`
-- `unit`
-- `flow_name`
-- `log`
 
 If the field is not listed above it will get logged as an annotation on the event like "bananas" and "greeting" below. pid, tid, and thread_name also get logged as annotations by default.
 
@@ -122,13 +122,13 @@ The `log` tuple is a little different in that the value is another tuple where t
 These are for logging call stacks (kernel, user, or both) at specific points in time. They do not have durations.
 
 **Required Fields**:
-- `pid`
-- `tid`
-- `ts`
-- `kstack` or `ustack` (or both)
+- `pid` (number)
+- `tid` (number)
+- `ts` (timestamp)
+- `kstack` and/or `ustack` (array of strings)
 
 **Optional Fields**:
-- `thread_name`
+- `thread_name` (string)
 
 ```
 print(("call_stack",

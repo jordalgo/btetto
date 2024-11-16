@@ -12,6 +12,14 @@ tracepoint:block:block_rq_complete,
 tracepoint:block:block_bio_complete
 /@start[args.sector]/
 {
+	$now = nsecs;
+	$start = @start[args.sector];
+	$duration = $now - $start;
+	
+	if ($duration < 10000) {
+		return;
+	}
+	
 	print(("track_event",
 		("name", "block I/O"),
 		("type", "BEGIN"),
