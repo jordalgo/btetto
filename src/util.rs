@@ -6,6 +6,7 @@ use std::io::{self, BufRead};
 use std::path::Path;
 
 use protos::protos_gen::perfetto_bpftrace::{log_message, track_event};
+use serde_json::Value;
 
 pub fn get_log_level(log_level: &str) -> log_message::Priority {
     match log_level {
@@ -96,6 +97,60 @@ pub fn validate_track_event(event: &HashMap<&str, serde_json::Value>) {
         is_valid_event_type(event_type),
         "Error: track must have a valid type. Found {event_type}"
     );
+}
+
+pub fn json_line_to_folded_stacks(line: &str) -> Option<String> {
+    let json_line: Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    if json_line["type"] != "value" {
+        return None;
+    }
+
+    let data = match json_line["data"].as_array() {
+        Some(arr) if !arr.is_empty() => arr,
+        _ => return None,
+    };
+
+    if data[0] != "call_stack" {
+        return None;
+    }
+
+    let mut event = HashMap::new();
+    for pair in &data[1..] {
+        if let Some(pair_arr) = pair.as_array() {
+            if pair_arr.len() == 2 {
+                if let Some(key) = pair_arr[0].as_str() {
+                    event.insert(key, &pair_arr[1]);
+                }
+            }
+        }
+    }
+
+    // Build frames: ustack (root) first, then kstack (towards leaf)
+    let mut frames: Vec<String> = Vec::new();
+
+    if let Some(ustack) = event.get("ustack").and_then(|v| v.as_str()) {
+        let mut uframes = parse_stack_str(ustack);
+        // parse_stack_str returns top-to-bottom; reverse for folded format (bottom-to-top)
+        uframes.reverse();
+        frames.extend(uframes);
+    }
+
+    if let Some(kstack) = event.get("kstack").and_then(|v| v.as_str()) {
+        let mut kframes = parse_stack_str(kstack);
+        kframes.reverse();
+        frames.extend(kframes);
+    }
+
+    if frames.is_empty() {
+        return None;
+    }
+
+    // Folded stacks format: "frame1;frame2;frame3 count"
+    Some(format!("{} 1", frames.join(";")))
 }
 
 pub fn validate_call_stack_sample(event: &HashMap<&str, serde_json::Value>) {
