@@ -1,12 +1,16 @@
 # btetto
 
-A tool that produces [Perfetto](https://perfetto.dev/) protobuf from formatted [bpftrace](https://github.com/bpftrace/bpftrace) output.
+A tool that provides cool visualizations from formatted [bpftrace](https://github.com/bpftrace/bpftrace) output.
+
+It currently supports (by default) [Perfetto](https://perfetto.dev/) and [flamelens](https://github.com/YS-L/flamelens).
 
 [Rust Crate available here](https://crates.io/crates/btetto)
 
 <center><a href="images/btetto_track_event.png"><img src="images/btetto_track_event.png" border=0 width=700></a></center>
 
 # Usage
+
+## Perfetto
 ```
 $ sudo bpftrace my_script.bt -f json | btetto
 Attached probes: 4
@@ -14,24 +18,44 @@ Attached probes: 4
 Writing 149 events to trace file: bpftrace_trace.binpb
 ```
 
+btetto.py produces a **bpftrace_trace.binpb** protobuf file, which can then be loaded into the [Perfetto UI](https://ui.perfetto.dev/).
+
+## flamelens
+This provides an in-terminal flamegraph visualization, which will update in real time (unless passing a file).
+
+```
+$ sudo bpftrace call_stack.bt -f json | btetto --flamegraph
+Attached probes: 4
+```
+
+This requires the use of `ustack`, `kstack`, or both in the bpftrace output, e.g.
+```
+print(("call_stack",
+    ("kstack", kstack),
+    ("ustack", ustack)
+));
+```
+
 You can also pass a bpftrace output file to btetto e.g.
 ```
 btetto my_bpftrace_output
 ```
-
-btetto.py produces a **bpftrace_trace.binpb** protobuf file, which can then be loaded into the [Perfetto UI](https://ui.perfetto.dev/).
+or
+```
+btetto --file my_bpftrace_output --flamegraph
+```
 
 # bpftrace Output Format
 The print output from bpftrace should be tuples (in JSON format e.g. `-f json`) where the first item in the tuple is the event type and the rest of the items are key/value tuples.
 
 [**Examples**](./example_scripts/)
 
-## Event Types
+## Event Types (perfetto only)
 - `track_event`
 - `call_stack`
 - `stdout`
 
-## Track Events (Spans)
+## Track Events (Spans) (perfetto only)
 
 **Required Fields**:
 - `name` (string)
@@ -118,7 +142,7 @@ The `log` tuple is a little different in that the value is another tuple where t
 - `ERROR`
 - `FATAL`
 
-## Call Stack Sample
+## Call Stack Sample (perfetto and flamelens)
 These are for logging call stacks (kernel, user, or both) at specific points in time. They do not have durations.
 
 **Required Fields**:

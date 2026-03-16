@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self};
+use std::sync::mpsc;
 
 use serde_json::Value;
 
@@ -34,7 +35,39 @@ static mut TRACK_DESCRIPTOR_UUID: u64 = 1;
 static mut FLOW_UUID: u64 = 1;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    let mut flamegraph_mode = false;
+    let mut filename: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--flamegraph" => flamegraph_mode = true,
+            "--file" => {
+                i += 1;
+                if i >= args.len() {
+                    panic!("--file requires a filename argument");
+                }
+                filename = Some(args[i].clone());
+            }
+            arg if arg.starts_with("--") => {
+                panic!("Unknown flag: {}", arg);
+            }
+            _ => {
+                if filename.is_some() {
+                    panic!("Filename specified multiple times");
+                }
+                filename = Some(args[i].clone());
+            }
+        }
+        i += 1;
+    }
+
+    if flamegraph_mode {
+        run_flamegraph_mode(filename.as_deref());
+        return;
+    }
+
     let mut trace = Trace::new();
     let mut ids = Ids {
         call_stack_ids: HashMap::new(),
@@ -48,11 +81,8 @@ fn main() {
     let packet = TracePacket::new();
     trace.packet.push(packet);
 
-    let args_len = args.len();
-    if args_len > 2 {
-        panic!("btetto only supports one argument, an optional filename.");
-    } else if args_len == 2 {
-        if let Ok(lines) = util::read_lines(args[1].clone()) {
+    if let Some(ref filename) = filename {
+        if let Ok(lines) = util::read_lines(filename) {
             for line in lines.flatten() {
                 let parse_json_line = serde_json::from_str(&line);
                 if parse_json_line.is_err() {
@@ -65,7 +95,7 @@ fn main() {
                 }
             }
         } else {
-            panic!("Could not read file {}", args[1].clone());
+            panic!("Could not read file {}", filename);
         }
     } else {
         ctrlc::set_handler(|| unsafe {
@@ -116,6 +146,45 @@ fn main() {
     let out_bytes: Vec<u8> = trace.write_to_bytes().unwrap();
 
     fs::write("bpftrace_trace.binpb", out_bytes).expect("Could not write Perfetto protobuf file");
+}
+
+fn run_flamegraph_mode(filename: Option<&str>) {
+
+    if let Some(filename) = filename {
+        let lines = util::read_lines(filename)
+            .unwrap_or_else(|_| panic!("Could not read file {}", filename));
+        let folded: Vec<String> = lines
+            .flatten()
+            .filter_map(|line| util::json_line_to_folded_stacks(&line))
+            .collect();
+        let data = folded.join("\n");
+        flamelens::run_from_collapsed_stacks(data, "bpftrace", true)
+            .expect("Failed to run flamelens");
+        return;
+    }
+
+    let (tx, rx) = mpsc::channel::<String>();
+
+    std::thread::spawn(move || {
+        let mut input = String::new();
+        loop {
+            input.clear();
+            match io::stdin().read_line(&mut input) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if let Some(folded) = util::json_line_to_folded_stacks(&input) {
+                        if tx.send(folded).is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    flamelens::run_from_live_stream(rx, "bpftrace [live]")
+        .expect("Failed to run flamelens");
 }
 
 fn parse_raw_data(trace: &mut Trace, data: &Value, ids: &mut Ids) {
