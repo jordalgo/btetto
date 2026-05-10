@@ -39,6 +39,7 @@ fn main() {
 
     let mut flamegraph_mode = false;
     let mut filename: Option<String> = None;
+    let mut out_path: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -49,6 +50,13 @@ fn main() {
                     panic!("--file requires a filename argument");
                 }
                 filename = Some(args[i].clone());
+            }
+            "--out" => {
+                i += 1;
+                if i >= args.len() {
+                    panic!("--out requires a file path argument");
+                }
+                out_path = Some(args[i].clone());
             }
             arg if arg.starts_with("--") => {
                 panic!("Unknown flag: {}", arg);
@@ -138,14 +146,17 @@ fn main() {
         }
     }
 
+    let output_file = out_path.as_deref().unwrap_or("bpftrace_trace.binpb");
+
     println!(
-        "Writing {} events to trace file: bpftrace_trace.binpb",
-        trace.packet.len()
+        "Writing {} events to trace file: {}",
+        trace.packet.len(),
+        output_file
     );
 
     let out_bytes: Vec<u8> = trace.write_to_bytes().unwrap();
 
-    fs::write("bpftrace_trace.binpb", out_bytes).expect("Could not write Perfetto protobuf file");
+    fs::write(output_file, out_bytes).expect("Could not write Perfetto protobuf file");
 }
 
 fn run_flamegraph_mode(filename: Option<&str>) {
